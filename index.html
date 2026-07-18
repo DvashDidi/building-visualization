@@ -15,6 +15,9 @@
     flex-wrap:wrap;padding:.55rem .8rem;z-index:10;
     background:linear-gradient(#171412ee,#17141200);pointer-events:none}
   .bar>*{pointer-events:auto}
+  .brand{display:flex;align-items:center;background:#efe8dc;border-radius:10px;
+    padding:.28rem .55rem;box-shadow:0 1px 4px #0006}
+  .brand img{height:26px;display:block}
   .title{font-weight:700;color:#f4efe7;font-size:.95rem;margin-inline-end:auto}
   .title small{display:block;font-weight:400;color:#c7bdae;font-size:.72rem;margin-top:2px}
   .opt{display:flex;gap:.3rem;background:#221e1a;border:1px solid #4a423a;border-radius:999px;padding:.2rem}
@@ -55,6 +58,7 @@
 <div id="loading">טוען את המודל…</div>
 
 <div class="bar">
+  <a class="brand" href="https://building-vis.dvash3.com" title="DiCode"><img src="dicode-logo.png" alt="DiCode"></a>
   <div class="title">חדר עבודה · מודל תלת־ממד <small id="sub">3.33 × 2.89 מ׳ · כיוון עיצובי למעצבת</small></div>
   <div class="opt" id="opts">
     <button class="o on" data-opt="A">אופציה A</button>
