@@ -65,6 +65,7 @@
     <button class="o" data-opt="B">אופציה B</button>
     <button class="o" data-opt="C">אופציה C</button>
     <button class="o" data-opt="D">אופציה D</button>
+    <button class="o" data-opt="E">אופציה E</button>
   </div>
   <div class="views" id="views"></div>
   <div class="tools">
@@ -97,7 +98,7 @@ const TH=THREE;
 // ===== ROOM =====
 const RW=3.33, RD=2.89, RH=2.6;
 const Z = y => RD - y;              // plan-y (0=bottom..RD=top) -> 3D z (0=near/door, RD=far)
-function entryDoor(opt){ return opt==='A'?{x0:0.45,x1:1.25} : opt==='D'?{x0:0.65,x1:1.45} : {x0:0.55,x1:1.35}; }
+function entryDoor(opt){ return opt==='A'?{x0:0.45,x1:1.25} : (opt==='D'||opt==='E')?{x0:0.65,x1:1.45} : {x0:0.55,x1:1.35}; }
 const BALC = {z0:Z(0.60), z1:Z(0.0)};   // left wall balcony, z 2.29..2.89
 const DOOR_H=2.05, BALC_H=2.10;
 function cabDepth(opt){ return opt==='A'?0.45:0.50; }
@@ -346,7 +347,7 @@ function buildCabinetD(W_){                 // cabinet on the FAR wall (plan bot
   revH(nyc-nH/2); revH(nyc+nH/2); revV(cxm); revV(x0+0.02); revV(x1-0.02);
 }
 
-function buildD(W_){
+function buildD(W_,nookAxis){
   const top=DESK_H,t=DESK_T,dep=0.70,sf=top+t/2;
   // desk along whole RIGHT wall, depth 0.70
   box(dep,t,RD, M.walnutTop, RW-dep/2, top, RD/2, W_);
@@ -363,8 +364,8 @@ function buildD(W_){
   potPlant(RW-0.28,sf,1.28,0.12,W_);
   // far-wall cabinet
   buildCabinetD(W_);
-  // seating in the near-left (plan top-left)
-  meetingNook(0.95, Z(1.65), 0.61, 'x', W_);
+  // seating in the near-left; E rotates the nook so its 1.90 side runs along the left wall
+  meetingNook(0.95, Z(1.65), 0.61, nookAxis||'x', W_);
 }
 
 // ===== DIMENSIONS OVERLAY =====
@@ -409,15 +410,19 @@ function buildDims(opt,dg){
     dimBar('z',bZ,RD,1.44,dtop,'0.70',gDesk);        // desk depth
     dimBar('x',2.29-0.95,2.29+0.95, 0.84-0.75-0.12, 0.02,'1.90',gSeat);
     dimBar('z',0.84-0.75,0.84+0.75, 2.29+0.95+0.12, 0.02,'1.50',gSeat);
-  }else if(opt==='D'){
+  }else if(opt==='D'||opt==='E'){
     // cabinet on the FAR wall: length 1.90 (x0.73-2.63), depth 0.50 (z2.39-2.89)
     dimBar('x',0.73,2.63, Z(0.50)-0.12, 0.04,'1.90',gCab);
     dimBar('z',Z(0.50),RD, 0.60, 0.04,'0.50',gCab);
     dimBar('z',0,RD,2.55,dtop,'2.89',gDesk);         // desk length (full wall)
     dimBar('x',RW-0.70,RW,0.42,dtop,'0.70',gDesk);   // desk depth
-    // seating square centred (0.95, Z(1.65)=1.24): 1.90 x 1.50
-    dimBar('x',0.0,1.90, 1.24-0.75-0.12, 0.02,'1.90',gSeat);
-    dimBar('z',1.24-0.75,1.24+0.75, 1.90+0.12, 0.02,'1.50',gSeat);
+    if(opt==='E'){                                   // nook rotated: 1.50 (x) x 1.90 (z), long side on left wall
+      dimBar('x',0.20,1.70, 1.24-0.95-0.12, 0.02,'1.50',gSeat);
+      dimBar('z',1.24-0.95,1.24+0.95, 1.70+0.12, 0.02,'1.90',gSeat);
+    }else{                                           // D: 1.90 (x) x 1.50 (z), centred (0.95, Z(1.65)=1.24)
+      dimBar('x',0.0,1.90, 1.24-0.75-0.12, 0.02,'1.90',gSeat);
+      dimBar('z',1.24-0.75,1.24+0.75, 1.90+0.12, 0.02,'1.50',gSeat);
+    }
   }else{
     const D=cabDepth(opt);
     dimBar('z',0,2.29,D+0.14,0.04,'2.29',gCab);       // cabinet (left wall)
@@ -442,7 +447,7 @@ let currentOpt='A';
 function build(opt){
   currentOpt=opt; clearWorld();
   buildShell(opt,world); buildDoors(opt,world);
-  if(opt==='D'){ buildD(world); }
+  if(opt==='D'||opt==='E'){ buildD(world, opt==='E'?'z':'x'); }
   else { buildCabinet(opt,world); if(opt==='A') buildA(world); else buildB(world, opt==='C'?'z':'x'); }
   dimGroupRef=new TH.Group(); buildDims(opt,dimGroupRef); world.add(dimGroupRef);
   buildSnapPoints(opt); clearMeasure();
@@ -468,8 +473,9 @@ function updateLegend(opt){
   const seat = opt==='A' ? 'פינת ישיבה — 2 כורסאות בוקלה (ליד הכניסה)' :
                opt==='C' ? 'פינת ישיבה — 2 כורסאות בוקלה (מרכז · לאורך)' :
                opt==='D' ? 'פינת ישיבה — 2 כורסאות בוקלה (למעלה-שמאל)' :
+               opt==='E' ? 'פינת ישיבה — 2 כורסאות בוקלה (לאורך הקיר השמאלי)' :
                            'פינת ישיבה — 2 כורסאות בוקלה (מרכז · לרוחב)';
-  const cab = opt==='D' ? 'ארון "קו אפס" + מדפסת · על הקיר התחתון (עומק 0.50, אורך 1.90)' :
+  const cab = (opt==='D'||opt==='E') ? 'ארון "קו אפס" + מדפסת · על הקיר התחתון (עומק 0.50, אורך 1.90)' :
                           'ארון "קו אפס" + מדפסת (עומק '+(opt==='A'?'0.45':'0.50')+')';
   L.innerHTML =
     '<b>אופציה '+opt+'</b> · סגנון מודרני חמים<br>'+
@@ -515,7 +521,7 @@ function viewsFor(opt){
     base["שולחן עבודה"]={eye:[1.03,2.28,0.37],tgt:[2.76,0.76,2.57]};
     base["פינת ישיבה"]={eye:[2.24,2.08,-0.90],tgt:[2.27,0.41,0.83]};
     base["קיר הארון"]={eye:[3.37,3.10,0.96],tgt:[0.21,1.22,0.95]};
-  }else if(opt==='D'){
+  }else if(opt==='D'||opt==='E'){
     base["מבט כללי"]={eye:[-1.87,3.44,0.19],tgt:[1.62,0.92,1.54]};
     base["שולחן עבודה"]={eye:[0.35,2.32,1.45],tgt:[3.05,0.82,1.45]};
     base["פינת ישיבה"]={eye:[-0.59,2.31,-0.05],tgt:[0.73,0.42,1.23]};
@@ -546,11 +552,12 @@ const measureGroup=new TH.Group(); scene.add(measureGroup);
 function buildSnapPoints(opt){
   const P=[]; const add=(x,y,z)=>P.push(new TH.Vector3(x,y,z));
   for(const x of [0,RW]) for(const z of [0,RD]) add(x,0,z);                 // room corners
-  if(opt==='D'){
+  if(opt==='D'||opt==='E'){
     const t=DESK_H;
     for(const x of [0.73,2.63]) for(const y of [0,RH]) add(x,y,Z(0.50));   // far-wall cabinet front corners
     for(const x of [RW-0.70,RW]) for(const z of [0,RD]) add(x,t,z);        // desk
-    for(const x of [0.0,1.90]) for(const z of [1.24-0.75,1.24+0.75]) add(x,0.02,z); // seating rug
+    const rugHX=(opt==='E')?0.75:0.95, rugHZ=(opt==='E')?0.95:0.75;        // nook rotated in E
+    for(const x of [0.95-rugHX,0.95+rugHX]) for(const z of [1.24-rugHZ,1.24+rugHZ]) add(x,0.02,z); // seating rug
   }else{
     const D=cabDepth(opt);
     for(const z of [0,2.29]) for(const y of [0,RH]){ add(0,y,z); add(D,y,z); } // cabinet (left wall)
@@ -677,7 +684,7 @@ const REF=window.REFDATA||{};
 const refPanel=document.getElementById('refpanel'),refThumb=document.getElementById('refthumb'),
       refCap=document.getElementById('refcap'),refModal=document.getElementById('refmodal'),refBig=document.getElementById('refbig');
 function showRef(opt,view){
-  const data=REF[(opt==='C'?'B':opt)+'|'+view];
+  const data=REF[(opt==='C'?'B':opt==='E'?'D':opt)+'|'+view];
   if(data){refThumb.src=data;refBig.src=data;refCap.textContent='📷 רפרנס · '+view;refPanel.classList.add('show');}
   else{refPanel.classList.remove('show');}
 }
