@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>מטבח — מודל תלת־ממד (נקי / מפורט)</title>
+<style>
+  :root{--brass:#b08d57}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#171412;color:#efe8dc;
+    font-family:"Assistant","Segoe UI",system-ui,Arial,sans-serif;overflow:hidden}
+  #app{position:fixed;inset:0}
+  canvas{display:block}
+  .bar{position:fixed;top:0;right:0;left:0;display:flex;gap:.5rem;align-items:center;
+    flex-wrap:wrap;padding:.55rem .8rem;z-index:10;
+    background:linear-gradient(#171412ee,#17141200);pointer-events:none}
+  .bar>*{pointer-events:auto}
+  .brand{display:flex;align-items:center;background:#efe8dc;border-radius:10px;
+    padding:.28rem .55rem;box-shadow:0 1px 4px #0006}
+  .brand img{height:26px;display:block}
+  .title{font-weight:700;color:#f4efe7;font-size:.95rem;margin-inline-end:auto}
+  .title small{display:block;font-weight:400;color:#c7bdae;font-size:.72rem;margin-top:2px}
+  .opt{display:flex;gap:.3rem;background:#221e1a;border:1px solid #4a423a;border-radius:999px;padding:.2rem}
+  button.o{border:0;background:transparent;color:#efe8dc;border-radius:999px;
+    padding:.4rem .95rem;font-size:.85rem;cursor:pointer;font-family:inherit;font-weight:600}
+  button.o.on{background:var(--brass);color:#1c1712}
+  .views{display:flex;gap:.32rem;flex-wrap:wrap}
+  button.v{border:1px solid #4a423a;background:#221e1a;color:#efe8dc;border-radius:999px;
+    padding:.4rem .75rem;font-size:.8rem;cursor:pointer;font-family:inherit}
+  button.v:hover{border-color:var(--brass)}
+  button.v.on{background:var(--brass);border-color:var(--brass);color:#1c1712;font-weight:600}
+  .tools{display:flex;gap:.32rem}
+  button.t{border:1px solid #4a423a;background:#221e1a;color:#efe8dc;border-radius:8px;
+    padding:.4rem .65rem;font-size:.8rem;cursor:pointer;font-family:inherit}
+  button.t:hover{border-color:var(--brass)}
+  button.t.on{background:var(--brass);border-color:var(--brass);color:#1c1712}
+  .hint{position:fixed;bottom:.7rem;right:.8rem;z-index:10;color:#d9d0c2;font-size:.74rem;
+    background:#1c191699;border:1px solid #3a332c;border-radius:8px;padding:.4rem .6rem}
+  .legend{position:fixed;bottom:.7rem;left:.8rem;z-index:10;color:#e7ded0;font-size:.73rem;
+    background:#1c191699;border:1px solid #3a332c;border-radius:10px;padding:.5rem .65rem;max-width:min(52ch,66vw)}
+  #loading{position:fixed;inset:0;display:grid;place-items:center;color:#e8dfd0;background:#171412;z-index:20}
+  .hud{position:fixed;top:3.4rem;left:.8rem;z-index:11;background:#1c1916f2;border:1px solid #4a423a;border-radius:10px;padding:.55rem .7rem;color:#e7ded0;direction:ltr;text-align:left;max-width:min(64ch,72vw)}
+  .hud .row{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.72rem;white-space:pre-wrap;line-height:1.55;color:#f0e9db}
+  .hud button{margin-top:.45rem;border:1px solid #4a423a;background:#221e1a;color:#efe8dc;border-radius:7px;padding:.32rem .65rem;font-size:.72rem;cursor:pointer;font-family:inherit}
+  .hud button:hover{border-color:var(--brass)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="loading">טוען את מודל המטבח…</div>
+
+<div class="bar">
+  <a class="brand" href="index.html" title="חזרה לתפריט"><img src="dicode-logo.png" alt="DiCode"></a>
+  <div class="title">מטבח · מודל תלת־ממד <small id="sub">משפחת בן שמעון · קוממיות 3 רמת גן · קנה מידה אמיתי</small></div>
+  <div class="opt" id="opts">
+    <button class="o on" data-mode="clean">נקי</button>
+    <button class="o" data-mode="detail">מפורט</button>
+  </div>
+  <div class="views" id="views"></div>
+  <div class="tools">
+    <button class="t" id="measure">📏 מדידה</button>
+    <button class="t" id="dims">מידות</button>
+    <button class="t" id="spin">סיבוב אוטומטי</button>
+    <button class="t" id="shot">⬇︎ שמירת תמונה</button>
+  </div>
+</div>
+
+<div class="legend" id="legend"></div>
+<div class="hint">גרירה = סיבוב · Shift+גרירה או קליק-ימני = הזזה · גלגלת = זום</div>
+<div class="hud" id="hud" style="display:none">
+  <div class="row" id="hudtxt">—</div>
+  <button id="copycam">📋 העתק מיקום מצלמה</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+"use strict";
+const TH=THREE, V3=(x,y,z)=>new TH.Vector3(x,y,z);
+
+// ===== ROOM (kitchen) =====
+// X = width, Z = depth (z=RD is the far cooking wall / Wall B, z=0 is near), Y = up. All metres.
+const RW=4.63, RD=3.60, RH=2.67;
+const COUNTER=0.90, C_T=0.04, BASE_D=0.60, TOE=0.10;    // counter height, top thickness, base depth, toe kick
+const UP_Y0=1.45, UP_H=1.10, UP_D=0.35;                 // upper cabinets: bottom, height, depth
+// Wall C (left wall, x=0) run along Z, occupying its exact 3.02 length in the far corner
+const C_Z0=RD-3.02, C_Z1=RD;                            // 0.58 .. 3.60
+// Island: long axis along X, 2.64 x 1.10, sink facing Wall B, stools on the near (front) side
+const IS_W=2.64, IS_D=1.10, IS_X0=1.34, IS_Z1=2.00, IS_Z0=IS_Z1-IS_D; // back at 2.00, front at 0.90
+const IS_X1=IS_X0+IS_W;
+let DETAIL=false;   // clean(false) / detailed(true)
+
+// ===== RENDERER / SCENE / CAMERAS =====
+const app=document.getElementById('app');
+const renderer=new TH.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=TH.PCFSoftShadowMap;
+renderer.outputEncoding=TH.sRGBEncoding; renderer.toneMapping=TH.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.04; app.appendChild(renderer.domElement);
+
+const scene=new TH.Scene(); scene.background=new TH.Color('#c9d3d9');
+const camera=new TH.PerspectiveCamera(52, innerWidth/innerHeight, 0.05, 100);
+const orthoCam=new TH.OrthographicCamera(-3,3,3,-3,0.1,40);
+orthoCam.position.set(RW/2,10,RD/2); orthoCam.up.set(0,0,-1); orthoCam.lookAt(RW/2,0,RD/2);
+
+// ===== LIGHTS =====
+scene.add(new TH.HemisphereLight(0xf3ede0,0x6b6152,0.68));
+scene.add(new TH.AmbientLight(0xffffff,0.18));
+const sun=new TH.DirectionalLight(0xffe9c6,1.3);
+sun.position.set(-3.5,3.4,-1.2); sun.target.position.set(2.3,0.4,2.6);
+sun.castShadow=true; sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.near=0.1; sun.shadow.camera.far=16;
+sun.shadow.camera.left=-6; sun.shadow.camera.right=6; sun.shadow.camera.top=6; sun.shadow.camera.bottom=-6;
+sun.shadow.bias=-0.0004; sun.shadow.normalBias=0.02; scene.add(sun); scene.add(sun.target);
+const fill=new TH.PointLight(0xfff2df,0.30,14,2); fill.position.set(2.3,RH-0.2,1.4); scene.add(fill);
+
+// ===== TEXTURES =====
+function woodFloorTexture(){
+  const c=document.createElement('canvas');c.width=1024;c.height=1024;const g=c.getContext('2d');
+  g.fillStyle='#b78a5b';g.fillRect(0,0,1024,1024);const ph=128;
+  for(let r=0;r*ph<1024;r++){const off=(r%2)?170:0;
+    for(let x=-off;x<1024;x+=256){const b=[181,138,91],v=(Math.random()*22-11);
+      g.fillStyle='rgb('+((b[0]+v)|0)+','+((b[1]+v*0.8)|0)+','+((b[2]+v*0.6)|0)+')';
+      g.fillRect(x+2,r*ph+2,252,ph-4);
+      g.strokeStyle='rgba(90,62,35,0.10)';g.lineWidth=1;
+      for(let k=0;k<10;k++){g.beginPath();const yy=r*ph+8+Math.random()*(ph-16);
+        g.moveTo(x+4,yy);g.bezierCurveTo(x+80,yy+(Math.random()*6-3),x+170,yy+(Math.random()*6-3),x+250,yy);g.stroke();}}}
+  const t=new TH.CanvasTexture(c);t.wrapS=t.wrapT=TH.RepeatWrapping;t.repeat.set(3.0,2.4);t.anisotropy=8;t.encoding=TH.sRGBEncoding;return t;
+}
+function wallTexture(hex){
+  const c=document.createElement('canvas');c.width=256;c.height=256;const g=c.getContext('2d');
+  g.fillStyle=hex;g.fillRect(0,0,256,256);
+  for(let i=0;i<9000;i++){g.fillStyle='rgba(0,0,0,'+(Math.random()*0.02)+')';g.fillRect(Math.random()*256,Math.random()*256,1,1);}
+  const t=new TH.CanvasTexture(c);t.wrapS=t.wrapT=TH.RepeatWrapping;t.repeat.set(3,3);t.encoding=TH.sRGBEncoding;return t;
+}
+const floorTex=woodFloorTexture(), wallTex=wallTexture('#efeae2');
+
+// ===== MATERIALS =====
+const M={
+  floor:new TH.MeshStandardMaterial({map:floorTex,roughness:0.72,metalness:0.02}),
+  wall:new TH.MeshStandardMaterial({map:wallTex,roughness:0.96,side:TH.FrontSide}),
+  ceil:new TH.MeshStandardMaterial({color:'#f6f3ee',roughness:1,side:TH.FrontSide}),
+  cab:new TH.MeshStandardMaterial({color:'#ece7df',roughness:0.5,metalness:0.03}),     // cabinet body / clean blocks
+  front:new TH.MeshStandardMaterial({color:'#e7e0d5',roughness:0.55,metalness:0.03}),  // door fronts
+  frontDairy:new TH.MeshStandardMaterial({color:'#dfe6ea',roughness:0.55}),            // subtle dairy tint (חלבי)
+  frontMeat:new TH.MeshStandardMaterial({color:'#ead9d3',roughness:0.55}),             // subtle meat tint (בשרי)
+  toe:new TH.MeshStandardMaterial({color:'#2b2723',roughness:0.8}),
+  counter:new TH.MeshStandardMaterial({color:'#ece9e3',roughness:0.3,metalness:0.05}), // quartz counter
+  splash:new TH.MeshStandardMaterial({color:'#e3ded4',roughness:0.85}),
+  steel:new TH.MeshStandardMaterial({color:'#c2c6ca',roughness:0.34,metalness:0.82}),
+  metalDark:new TH.MeshStandardMaterial({color:'#2f3236',roughness:0.5,metalness:0.5}),
+  cooktop:new TH.MeshStandardMaterial({color:'#14171a',roughness:0.25,metalness:0.2}),
+  brass:new TH.MeshStandardMaterial({color:'#b08d57',roughness:0.35,metalness:0.75}),
+  glass:new TH.MeshStandardMaterial({color:'#cfe3e6',roughness:0.08,transparent:true,opacity:0.26}),
+  wine:new TH.MeshStandardMaterial({color:'#20262b',roughness:0.2,metalness:0.3,transparent:true,opacity:0.8}),
+  frame:new TH.MeshStandardMaterial({color:'#8f8577',roughness:0.7}),
+  fabric:new TH.MeshStandardMaterial({color:'#3a3d42',roughness:0.85}),
+  wood:new TH.MeshStandardMaterial({color:'#6b4a2f',roughness:0.45,metalness:0.05}),
+};
+
+// ===== HELPERS =====
+function box(w,h,d,mat,x,y,z,parent){
+  const m=new TH.Mesh(new TH.BoxGeometry(w,h,d),mat);
+  m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;(parent||scene).add(m);return m;
+}
+function plane(w,h,mat){const m=new TH.Mesh(new TH.PlaneGeometry(w,h),mat);m.receiveShadow=true;return m;}
+function cyl(rt,rb,h,mat,x,y,z,parent,seg){const m=new TH.Mesh(new TH.CylinderGeometry(rt,rb,h,seg||24),mat);m.position.set(x,y,z);m.castShadow=true;(parent||scene).add(m);return m;}
+
+// ===== WORLD =====
+let world=new TH.Group(); scene.add(world);
+let nameGroup=null;          // schematic name tags (clean mode only)
+
+function buildShell(W_){
+  let f=plane(RW,RD,M.floor); f.rotation.x=-Math.PI/2; f.position.set(RW/2,0,RD/2); W_.add(f);
+  let c=plane(RW,RD,M.ceil); c.rotation.x=Math.PI/2; c.position.set(RW/2,RH,RD/2); W_.add(c);
+  const wp=(w,h,cx,cy,cz,rotY)=>{const p=plane(w,h,M.wall);p.position.set(cx,cy,cz);p.rotation.y=rotY;W_.add(p);};
+  wp(RW,RH,RW/2,RH/2,RD,Math.PI);          // FAR wall (Wall B, cooking)
+  wp(RD,RH,0,RH/2,RD/2,Math.PI/2);         // LEFT wall (Wall C)
+  wp(RD,RH,RW,RH/2,RD/2,-Math.PI/2);       // RIGHT wall
+  wp(RW,RH,RW/2,RH/2,0,0);                 // NEAR wall (behind camera on overview)
+  const sk=(w,cx,cz,rotY)=>{const b=box(w,0.09,0.02,M.frame,cx,0.045,cz,W_);b.rotation.y=rotY;};
+  sk(RW,RW/2,0.01,0); sk(RD,0.01,RD/2,Math.PI/2); sk(RD,RW-0.01,RD/2,Math.PI/2);
+}
+
+// dimension label (also reused for schematic name tags)
+function roundRect(g,x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();}
+function makeLabel(text,accent){
+  const c=document.createElement('canvas');c.width=256;c.height=128;const g=c.getContext('2d');
+  g.clearRect(0,0,256,128);
+  g.fillStyle='rgba(28,24,20,0.9)';roundRect(g,20,40,216,48,14);g.fill();
+  g.strokeStyle=accent||'#b08d57';g.lineWidth=4;roundRect(g,20,40,216,48,14);g.stroke();
+  g.fillStyle='#f6efe2';g.font='bold 34px Arial';g.textAlign='center';g.textBaseline='middle';
+  g.fillText(text,128,65);
+  const tex=new TH.CanvasTexture(c);tex.encoding=TH.sRGBEncoding;
+  const sp=new TH.Sprite(new TH.SpriteMaterial({map:tex,depthTest:false,transparent:true}));
+  sp.scale.set(0.42,0.21,1);sp.renderOrder=1000;return sp;
+}
+function nameTag(text,x,y,z){ if(!nameGroup)return; const s=makeLabel(text,'#7fa8d8'); s.position.set(x,y,z); s.scale.set(0.5,0.25,1); nameGroup.add(s); }
+
+// ===== CABINET / RUN BUILDERS =====
+// A base cabinet block with counter, toe kick, and (in detail mode) door + handle.
+// facing: 'z-' fronts face -z (Wall B), 'x+' fronts face +x (Wall C), 'z-'/'z+' for island sides.
+function baseBox(x,z,w,d,facing,mat,W_){
+  const bodyH=COUNTER-C_T-TOE;
+  box(w-0.01,bodyH,d-0.01,mat||M.cab, x, TOE+bodyH/2, z, W_);          // body
+  box(w-0.06,TOE-0.02,d-0.10, M.toe, x, (TOE-0.02)/2+0.01, z, W_);      // recessed toe kick
+  if(DETAIL){                                                          // door reveals + handle
+    const fmat=mat||M.front;
+    if(facing==='z-'){ box(w-0.05,bodyH-0.04,0.02,fmat,x,TOE+bodyH/2,z-d/2+0.011,W_);
+      box(w*0.5,0.02,0.02,M.brass,x,COUNTER-0.20,z-d/2+0.03,W_); }
+    else if(facing==='z+'){ box(w-0.05,bodyH-0.04,0.02,fmat,x,TOE+bodyH/2,z+d/2-0.011,W_);
+      box(w*0.5,0.02,0.02,M.brass,x,COUNTER-0.20,z+d/2-0.03,W_); }
+    else if(facing==='x+'){ box(0.02,bodyH-0.04,d-0.05,fmat,x+w/2-0.011,TOE+bodyH/2,z,W_);
+      box(0.02,0.02,d*0.5,M.brass,x+w/2-0.03,COUNTER-0.20,z,W_); }
+  }
+}
+// countertop slab spanning [x0..x1] x [z0..z1]
+function counterTop(x0,x1,z0,z1,W_){
+  box(x1-x0,C_T,z1-z0,M.counter,(x0+x1)/2,COUNTER-C_T/2,(z0+z1)/2,W_);
+}
+// upper cabinet block
+function upper(x,z,w,d,facing,h,y0,glass,W_){
+  h=h||UP_H; y0=(y0==null?UP_Y0:y0);
+  const mat=glass?M.glass:M.cab;
+  box(w-0.02,h,d-0.01,mat,x,y0+h/2,z,W_);
+  if(DETAIL && !glass){ if(facing==='z-')box(w-0.05,h-0.04,0.02,M.front,x,y0+h/2,z-d/2+0.011,W_);
+    box(w*0.5,0.02,0.02,M.brass,x,y0+0.12,(facing==='z-'?z-d/2+0.03:z),W_); }
+  if(DETAIL && glass && facing==='z-'){ // mullions
+    box(0.02,h,0.02,M.frame,x,y0+h/2,z-d/2,W_);
+    box(w,0.02,0.02,M.frame,x,y0+h*0.5,z-d/2,W_);
+  }
+}
+
+// ---- Wall B: cooking wall (far, z=RD). Fronts face -z ----
+function buildWallB(W_){
+  const zf=RD, zc=RD-BASE_D/2;
+  // continuous base run + counter across the whole 4.63 m
+  const segs=[0.93,0.93,0.92,0.40,0.77,0.68];  // 4.63
+  let x=0; for(const w of segs){ baseBox(x+w/2,zc,w,BASE_D,'z-', DETAIL?(x<2.3?M.frontMeat:M.frontDairy):M.cab, W_); x+=w; }
+  counterTop(0,RW,RD-BASE_D,RD,W_);
+  box(RW,0.10,0.02,M.splash,RW/2,COUNTER+0.05,RD-0.011,W_);   // backsplash lip
+  // cooktop (0.94) inset in the counter, centred on the wall (window sits directly above it)
+  const ckX=RW/2, ckW=0.94;
+  box(ckW,0.02,0.52,M.cooktop,ckX,COUNTER+0.011,RD-0.34,W_);
+  if(DETAIL){ for(const dx of [-0.24,0.24]) for(const dz of [-0.12,0.12]){
+    cyl(0.075,0.075,0.012,M.metalDark,ckX+dx,COUNTER+0.024,RD-0.34+dz,W_,20);
+    cyl(0.03,0.03,0.02,M.brass,ckX+dx,COUNTER+0.035,RD-0.34+dz,W_,12); } }
+  // central window directly above the cooktop, with uppers on either side
+  box(1.30,1.00,0.03,M.glass,ckX,1.95,RD-0.02,W_);
+  if(DETAIL){ box(1.34,0.04,0.05,M.frame,ckX,1.45,RD-0.02,W_); box(1.34,0.04,0.05,M.frame,ckX,2.45,RD-0.02,W_);
+    box(0.04,1.02,0.05,M.frame,ckX,1.95,RD-0.02,W_); box(1.30,0.04,0.05,M.frame,ckX,1.95,RD-0.02,W_); }
+  upper(0.83,zf-UP_D/2,1.66,UP_D,'z-',UP_H,UP_Y0,false,W_);           // left uppers (over meat)
+  upper(3.80,zf-UP_D/2,1.66,UP_D,'z-',UP_H,UP_Y0,true,W_);            // right uppers (glass, dairy)
+  if(!DETAIL){
+    nameTag('כיריים',ckX,COUNTER+0.30,RD-0.5);
+    nameTag('חלון',ckX,2.15,RD-0.5);
+    nameTag('בשרי',0.9,COUNTER+0.55,RD-0.5);
+    nameTag('חלבי',3.85,COUNTER+0.55,RD-0.5);
+  }
+}
+
+// ---- Wall C: tall units + fridge (left wall x=0). Fronts face +x ----
+function buildWallC(W_){
+  const xc=BASE_D/2, tallH=RH-0.06;
+  function pantry(z0,w){ const zc=z0+w/2;                 // full-height closet (מזווה)
+    box(BASE_D-0.02,tallH,w,M.cab,xc,tallH/2,zc,W_);
+    if(DETAIL){ box(0.02,tallH-0.06,w-0.05,M.front,BASE_D-0.02,tallH/2,zc,W_);
+      box(0.02,0.4,w*0.4,M.brass,BASE_D-0.01,1.4,zc,W_); }
+    return zc; }
+  // מזווה on the near side of the fridge
+  const p1Z0=C_Z0+0.03, p1W=0.60, p1zc=pantry(p1Z0,p1W);
+  // fridge (steel) in the middle
+  const frZ0=p1Z0+p1W, frW=0.95, frZc=frZ0+frW/2, frH=2.02;
+  box(BASE_D-0.02,frH,frW,M.steel,xc,frH/2,frZc,W_);
+  if(DETAIL){ box(0.02,frH-0.10,frW-0.06,M.steel,BASE_D-0.02,frH/2,frZc,W_);
+    box(0.02,0.4,0.03,M.metalDark,BASE_D-0.01,1.3,frZc-frW/2+0.10,W_);
+    box(0.02,0.4,0.03,M.metalDark,BASE_D-0.01,1.3,frZc+frW/2-0.10,W_); }
+  // second מזווה on the other side of the fridge
+  const p2Z0=frZ0+frW, p2W=0.60, p2zc=pantry(p2Z0,p2W);
+  // base cabinets + uppers for the remaining run up to the corner (near Wall B)
+  const bZ0=p2Z0+p2W, bZ1=C_Z1;
+  let z=bZ0; while(z+0.5<=bZ1){ const w=Math.min(0.55,bZ1-z); baseBox(xc,z+w/2,w,BASE_D,'x+',M.cab,W_); z+=w; }
+  if(bZ1>bZ0+0.05){ counterTop(0,BASE_D,bZ0,bZ1,W_); upper(UP_D/2,(bZ0+bZ1)/2,bZ1-bZ0,UP_D,'x+',UP_H,UP_Y0,false,W_); }
+  if(!DETAIL){
+    nameTag('מזווה',xc+0.35,RH*0.55,p1zc);
+    nameTag('מקרר',xc+0.35,frH*0.6,frZc);
+    nameTag('מזווה',xc+0.35,RH*0.55,p2zc);
+    if(bZ1>bZ0+0.05) nameTag('חד"פ',xc+0.35,COUNTER+0.25,(bZ0+bZ1)/2);
+  }
+}
+
+// ---- Island: 2.64 x 1.10. Sink faces Wall B (+z back edge), stools on near (-z front) edge ----
+function stool(x,z,W_){
+  const g=new TH.Group(); g.position.set(x,0,z); W_.add(g);
+  cyl(0.18,0.18,0.05,M.fabric,0,0.66,0,g,20);
+  cyl(0.03,0.03,0.62,M.metalDark,0,0.33,0,g,16);
+  cyl(0.20,0.20,0.02,M.metalDark,0,0.02,0,g,20);
+  cyl(0.19,0.19,0.02,M.brass,0,0.30,0,g,20);
+}
+function buildIsland(W_){
+  const cx=(IS_X0+IS_X1)/2, cz=(IS_Z0+IS_Z1)/2;
+  // body split into cabinet segments 40/70/50/50/50 along X (front faces -z)
+  const segs=[0.40,0.70,0.50,0.50,0.54]; let x=IS_X0;
+  for(const w of segs){ baseBox(x+w/2,cz,w,IS_D,'z-',M.cab,W_); x+=w; }
+  counterTop(IS_X0,IS_X1,IS_Z0,IS_Z1,W_);
+  // countertop overhang on the stool (front) side for knee room
+  box(IS_W,C_T,0.28,M.counter,cx,COUNTER-C_T/2,IS_Z0-0.14,W_);
+  // sink (double bowl) near the back edge, centred; dishwasher on the LEFT, wine fridge behind the dishwasher
+  const skX=cx, skZ=IS_Z1-0.34, dwX=cx-0.72;
+  if(DETAIL){
+    box(0.66,0.02,0.42,M.steel,skX,COUNTER+0.006,skZ,W_);
+    for(const dx of [-0.16,0.16]) box(0.26,0.14,0.34,M.metalDark,skX+dx,COUNTER-0.07,skZ,W_);
+    cyl(0.015,0.015,0.26,M.steel,skX,COUNTER+0.13,skZ-0.16,W_,12);   // tap on the standing side (front rim)
+    box(0.60,0.72,0.03,M.metalDark,dwX,0.46,IS_Z0+0.02,W_);          // dishwasher front (opens toward the clear left side)
+    box(0.55,0.68,0.50,M.wine,dwX,0.44,IS_Z1-0.28,W_);              // wine fridge directly BEHIND the dishwasher
+  }else{
+    box(0.66,0.02,0.42,M.steel,skX,COUNTER+0.006,skZ,W_);
+    nameTag('כיור',skX,COUNTER+0.25,skZ);
+    nameTag('מדיח',dwX,COUNTER+0.25,IS_Z0+0.15);
+    nameTag('מקרר יינות',dwX,0.62,IS_Z1-0.28);
+  }
+  // 3 bar stools clustered on the RIGHT, leaving the left front clear to open the dishwasher / wine fridge
+  const sZ=IS_Z0-0.42;
+  for(const sx of [cx+0.20, cx+0.68, cx+1.16]) stool(sx,sZ,W_);
+}
+
+// ===== DIMENSIONS =====
+let showDims=false, dimGroupRef=null, currentView='מבט כללי';
+const dimMat=new TH.LineBasicMaterial({color:0x3a2f22,depthTest:false,transparent:true,opacity:0.95});
+function line(pts,dg){const l=new TH.Line(new TH.BufferGeometry().setFromPoints(pts),dimMat);l.renderOrder=999;dg.add(l);}
+function dimBar(ax,a,b,fixed,y,text,dg){
+  line(ax==='x'?[V3(a,y,fixed),V3(b,y,fixed)]:[V3(fixed,y,a),V3(fixed,y,b)],dg);
+  const tk=0.07;
+  if(ax==='x'){line([V3(a,y,fixed-tk),V3(a,y,fixed+tk)],dg);line([V3(b,y,fixed-tk),V3(b,y,fixed+tk)],dg);}
+  else{line([V3(fixed-tk,y,a),V3(fixed+tk,y,a)],dg);line([V3(fixed+tk,y,b),V3(fixed-tk,y,b)],dg);}
+  const lab=makeLabel(text);
+  if(ax==='x')lab.position.set((a+b)/2,y+0.13,fixed); else lab.position.set(fixed,y+0.13,(a+b)/2);
+  dg.add(lab);
+}
+function dimV(x,z,y0,y1,text,dg){                 // vertical (height) dimension bar
+  line([V3(x,y0,z),V3(x,y1,z)],dg);
+  const tk=0.07;
+  line([V3(x-tk,y0,z),V3(x+tk,y0,z)],dg); line([V3(x-tk,y1,z),V3(x+tk,y1,z)],dg);
+  const lab=makeLabel(text); lab.position.set(x+0.16,(y0+y1)/2,z); dg.add(lab);
+}
+function buildDims(dg){
+  const gRoom=new TH.Group(), gB=new TH.Group(), gC=new TH.Group(), gI=new TH.Group();
+  dg.add(gRoom,gB,gC,gI);
+  dg.userData.groups={room:gRoom,wallB:gB,wallC:gC,island:gI};
+  // room
+  dimBar('x',0,RW,-0.25,0.03,'4.63',gRoom);
+  dimBar('z',0,RD,-0.25,0.03,'3.60*',gRoom);
+  // Wall B (cooking wall)
+  dimBar('x',0,RW,RD-BASE_D-0.10,COUNTER,'4.63',gB);
+  dimBar('x',RW/2-0.47,RW/2+0.47,RD-BASE_D-0.22,COUNTER,'0.94',gB);   // cooktop width (centred)
+  dimV(RW+0.02,RD-0.02,0,RH,'2.67',gB);
+  dimV(RW+0.02,RD-0.02,0,COUNTER,'0.90',gB);
+  dimV(RW+0.02,RD-0.02,UP_Y0,UP_Y0+UP_H,'1.08',gB);
+  // Wall C
+  dimBar('z',C_Z0,C_Z1,BASE_D+0.10,COUNTER,'3.02',gC);
+  dimV(-0.02,C_Z0+0.02,0,RH,'2.67',gC);
+  // Island
+  dimBar('x',IS_X0,IS_X1,IS_Z0-0.20,COUNTER,'2.64',gI);
+  dimBar('z',IS_Z0,IS_Z1,IS_X1+0.15,COUNTER,'1.10',gI);
+  dimV(IS_X1+0.02,IS_Z1-0.02,0,COUNTER,'0.90',gI);
+}
+function clearWorld(){
+  world.traverse(o=>{ if(o.geometry)o.geometry.dispose(); });
+  scene.remove(world); world=new TH.Group(); scene.add(world);
+}
+let currentMode='clean';
+function build(mode){
+  currentMode=mode; DETAIL=(mode==='detail'); clearWorld();
+  nameGroup=new TH.Group(); world.add(nameGroup); nameGroup.visible=!DETAIL;
+  buildShell(world);
+  buildWallB(world); buildWallC(world); buildIsland(world);
+  dimGroupRef=new TH.Group(); buildDims(dimGroupRef); world.add(dimGroupRef);
+  buildSnapPoints(); clearMeasure();
+  updateLegend(); updateDims();
+}
+function updateDims(){
+  if(!dimGroupRef) return;
+  const g=dimGroupRef.userData.groups;
+  const all=(currentView==='מבט כללי'||currentView==='מבט־על');
+  const map={'קיר כיריים':'wallB','קיר מקרר':'wallC','אי':'island'};
+  dimGroupRef.visible=showDims;
+  for(const name of ['room','wallB','wallC','island']) g[name].visible=showDims&&(all||map[currentView]===name);
+}
+
+// ===== LEGEND =====
+function updateLegend(){
+  const L=document.getElementById('legend');
+  L.innerHTML='<b>מטבח כשר</b> · '+(DETAIL?'תצוגה מפורטת':'תצוגה נקייה (סכמטית)')+'<br>'+
+    '<span style="color:#e0b0a6">&#9632;</span> אזור בשרי &nbsp; '+
+    '<span style="color:#a9c6d8">&#9632;</span> אזור חלבי<br>'+
+    '<span style="color:#d8a94a">&#9632;</span> קיר כיריים 4.63מ׳ · כיריים &nbsp; '+
+    '<span style="color:#c2c6ca">&#9632;</span> קיר מקרר 3.02מ׳<br>'+
+    '<span style="color:#9ac0a0">&#9632;</span> אי 2.64×1.10מ׳ · כיור + מדיח + 3 כיסאות בר';
+  document.getElementById('sub').textContent='קנה מידה אמיתי · '+(DETAIL?'מפורט':'נקי')+' · *עומק החדר משוער';
+}
+
+// ===== CAMERA (spherical orbit, eased) =====
+const target=new TH.Vector3(RW/2,1.0,RD/2), goalTarget=target.clone();
+let radius=7.2,theta=0.5,phi=0.72, gRadius=radius,gTheta=theta,gPhi=phi;
+let topActive=false,gTop=false, autoSpin=false;
+function applyCam(){
+  camera.up.set(0,1,0);
+  const st=Math.sin(phi);
+  camera.position.set(target.x+radius*st*Math.sin(theta),target.y+radius*Math.cos(phi),target.z+radius*st*Math.cos(theta));
+  camera.lookAt(target);
+}
+function fromEye(eye,tgt){
+  const dx=eye[0]-tgt[0],dy=eye[1]-tgt[1],dz=eye[2]-tgt[2],r=Math.hypot(dx,dy,dz);
+  gRadius=r; gTheta=Math.atan2(dx,dz); gPhi=Math.acos(Math.min(1,Math.max(-1,dy/r)));
+  goalTarget.set(tgt[0],tgt[1],tgt[2]);
+}
+function exitTop(){
+  const dx=camera.position.x-target.x,dy=camera.position.y-target.y,dz=camera.position.z-target.z,r=Math.hypot(dx,dy,dz)||7;
+  gRadius=radius=r; gTheta=theta=Math.atan2(dx,dz); gPhi=phi=Math.acos(Math.min(1,Math.max(-1,dy/r)));
+  gTop=false;topActive=false;
+}
+function goView(v){
+  if(!v)return;
+  if(v.top){gTop=true;gRadius=7.2;goalTarget.set(v.tgt[0],v.tgt[1],v.tgt[2]);}
+  else{gTop=false;fromEye(v.eye,v.tgt);}
+}
+function viewsFor(){
+  return {
+    "מבט כללי":{eye:[5.6,3.9,-2.6],tgt:[2.30,1.05,2.20]},
+    "מבט־על":{top:true,tgt:[RW/2,0.3,RD/2]},
+    "קיר כיריים":{eye:[2.30,1.55,-0.60],tgt:[2.30,1.30,RD]},
+    "קיר מקרר":{eye:[3.40,1.55,1.80],tgt:[0.0,1.30,1.80]},
+    "אי":{eye:[2.62,2.10,-1.70],tgt:[2.62,0.90,1.40]},
+  };
+}
+let currentViews=viewsFor();
+
+// ===== CONTROLS =====
+let dragging=false,panning=false,px=0,py=0; const el=renderer.domElement;
+function panBy(dx,dy){
+  const st=Math.sin(phi),cf=Math.cos(phi);
+  const fx=-st*Math.sin(theta),fy=-cf,fz=-st*Math.cos(theta);
+  let rx=-fz,rz=fx; const rl=Math.hypot(rx,rz)||1; rx/=rl;rz/=rl;
+  let ux=-rz*fy, uy=rz*fx-rx*fz, uz=rx*fy;
+  const ul=Math.hypot(ux,uy,uz)||1; ux/=ul;uy/=ul;uz/=ul;
+  const s=radius*0.95;
+  target.x+=(-dx*rx+dy*ux)*s; target.y+=(dy*uy)*s; target.z+=(-dx*rz+dy*uz)*s;
+  goalTarget.copy(target);
+}
+
+// ===== MEASURE TOOL =====
+let measureMode=false, snapPts=[], measStart=null, previewLine=null;
+const measureGroup=new TH.Group(); scene.add(measureGroup);
+function buildSnapPoints(){
+  const P=[]; const add=(x,y,z)=>P.push(V3(x,y,z));
+  for(const x of [0,RW]) for(const z of [0,RD]){ add(x,0,z); add(x,RH,z); }         // room corners
+  for(const x of [0,RW]) for(const z of [0,RD]) add(x,COUNTER,z);
+  for(const x of [0,RW]) add(x,COUNTER,RD-BASE_D);                                   // Wall B counter front
+  for(const z of [C_Z0,C_Z1]) add(BASE_D,COUNTER,z);                                 // Wall C front
+  for(const x of [IS_X0,IS_X1]) for(const z of [IS_Z0,IS_Z1]){ add(x,0,z); add(x,COUNTER,z); }  // island
+  snapPts=P;
+}
+const ray=new TH.Raycaster(), ndc=new TH.Vector2();
+function pickPoint(cx,cy){
+  const r=el.getBoundingClientRect();
+  ndc.x=((cx-r.left)/r.width)*2-1; ndc.y=-((cy-r.top)/r.height)*2+1;
+  ray.setFromCamera(ndc, topActive?orthoCam:camera);
+  const hits=ray.intersectObject(world,true); let p=null;
+  for(const h of hits){const o=h.object; if(o.type==='Sprite'||o.type==='Line')continue; p=h.point.clone(); break;}
+  if(!p) return null;
+  let best=null,bd=0.22*0.22;
+  for(const s of snapPts){const d=s.distanceToSquared(p); if(d<bd){bd=d;best=s;}}
+  return best?best.clone():p;
+}
+const measLineMat=new TH.LineBasicMaterial({color:0x2f6fd0,depthTest:false,transparent:true});
+function measMarker(p){const m=new TH.Mesh(new TH.SphereGeometry(0.028,10,10),new TH.MeshBasicMaterial({color:0x2f6fd0,depthTest:false}));m.position.copy(p);m.renderOrder=1001;measureGroup.add(m);}
+function measLabel(text,p){
+  const c=document.createElement('canvas');c.width=256;c.height=128;const g=c.getContext('2d');
+  g.fillStyle='rgba(20,42,80,0.92)';roundRect(g,18,40,220,48,14);g.fill();
+  g.strokeStyle='#7fb0ff';g.lineWidth=4;roundRect(g,18,40,220,48,14);g.stroke();
+  g.fillStyle='#eaf2ff';g.font='bold 34px Arial';g.textAlign='center';g.textBaseline='middle';g.fillText(text,128,65);
+  const tex=new TH.CanvasTexture(c);tex.encoding=TH.sRGBEncoding;
+  const sp=new TH.Sprite(new TH.SpriteMaterial({map:tex,depthTest:false,transparent:true}));
+  sp.scale.set(0.44,0.22,1);sp.position.copy(p);sp.position.y+=0.10;sp.renderOrder=1002;measureGroup.add(sp);
+}
+function addMeasurement(a,b){
+  measureGroup.add(new TH.Line(new TH.BufferGeometry().setFromPoints([a,b]),measLineMat));
+  measMarker(a); measMarker(b);
+  measLabel(a.distanceTo(b).toFixed(2)+' מ׳', a.clone().add(b).multiplyScalar(0.5));
+}
+function clearMeasure(){ while(measureGroup.children.length) measureGroup.remove(measureGroup.children[0]); measStart=null; previewLine=null; }
+function measureClick(cx,cy){
+  const p=pickPoint(cx,cy); if(!p) return;
+  if(!measStart){ measStart=p; measMarker(p); }
+  else { if(previewLine){measureGroup.remove(previewLine);previewLine=null;} addMeasurement(measStart,p); measStart=null; }
+}
+function measurePreview(cx,cy){
+  const p=pickPoint(cx,cy); if(!p) return;
+  if(previewLine) measureGroup.remove(previewLine);
+  previewLine=new TH.Line(new TH.BufferGeometry().setFromPoints([measStart,p]),
+    new TH.LineBasicMaterial({color:0x7fb0ff,depthTest:false,transparent:true,opacity:0.85}));
+  previewLine.renderOrder=1000; measureGroup.add(previewLine);
+}
+const HINT=document.querySelector('.hint'), HINT_DEF=HINT.textContent;
+document.getElementById('measure').onclick=()=>{
+  measureMode=!measureMode;
+  document.getElementById('measure').classList.toggle('on',measureMode);
+  el.style.cursor=measureMode?'crosshair':'';
+  HINT.textContent=measureMode?'מצב מדידה: לחיצה = נקודה · שתי נקודות = קו עם אורך · גרירה = סיבוב · לחיצה חוזרת על 📏 מנקה':HINT_DEF;
+  if(!measureMode) clearMeasure();
+};
+el.addEventListener('contextmenu',e=>e.preventDefault());
+let downX=0,downY=0,moved=false;
+el.addEventListener('pointerdown',e=>{if(gTop||topActive)exitTop();dragging=true;panning=(e.button===2||e.shiftKey);px=e.clientX;py=e.clientY;downX=e.clientX;downY=e.clientY;moved=false;el.setPointerCapture(e.pointerId);autoSpin=false;setSpinBtn();});
+el.addEventListener('pointerup',e=>{const wasDrag=moved;dragging=false;
+  if(measureMode&&!wasDrag&&!panning) measureClick(e.clientX,e.clientY);
+  panning=false;});
+el.addEventListener('pointermove',e=>{
+  if(Math.abs(e.clientX-downX)+Math.abs(e.clientY-downY)>6) moved=true;
+  if(dragging){const dx=(e.clientX-px)/innerWidth,dy=(e.clientY-py)/innerHeight;px=e.clientX;py=e.clientY;
+    if(panning){panBy(dx,dy);} else {gTheta-=dx*3.2;gPhi-=dy*2.2;gPhi=Math.max(0.12,Math.min(Math.PI*0.49,gPhi));}}
+  else if(measureMode&&measStart){ measurePreview(e.clientX,e.clientY); }});
+el.addEventListener('wheel',e=>{e.preventDefault();gRadius*=(1+Math.sign(e.deltaY)*0.08);gRadius=Math.max(1.8,Math.min(16,gRadius));},{passive:false});
+let pinch=0;
+el.addEventListener('touchmove',e=>{if(e.touches.length===2){e.preventDefault();if(gTop||topActive)exitTop();const dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY,d=Math.hypot(dx,dy);if(pinch){gRadius*=pinch/d;gRadius=Math.max(1.8,Math.min(16,gRadius));}pinch=d;}},{passive:false});
+el.addEventListener('touchend',()=>pinch=0);
+
+// ===== UI WIRING =====
+const vbox=document.getElementById('views');
+Object.keys(viewsFor()).forEach((k,i)=>{
+  const b=document.createElement('button');b.className='v';b.textContent=k;b.dataset.k=k;
+  b.onclick=()=>{document.querySelectorAll('button.v').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+    goView(currentViews[k]);autoSpin=false;setSpinBtn();currentView=k;updateDims();};
+  vbox.appendChild(b); if(i===0)b.classList.add('on');
+});
+document.querySelectorAll('button.o').forEach(b=>{
+  b.onclick=()=>{document.querySelectorAll('button.o').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+    build(b.dataset.mode);
+    const sel=document.querySelector('button.v.on'); const k=sel?sel.dataset.k:'מבט כללי'; goView(currentViews[k]);currentView=k;updateDims();};
+});
+const spinBtn=document.getElementById('spin');
+function setSpinBtn(){spinBtn.classList.toggle('on',autoSpin);}
+spinBtn.onclick=()=>{if(gTop||topActive)exitTop();autoSpin=!autoSpin;if(autoSpin){goalTarget.set(RW/2,1.0,RD/2);}setSpinBtn();};
+document.getElementById('dims').onclick=()=>{showDims=!showDims;updateDims();
+  document.getElementById('dims').classList.toggle('on',showDims);};
+document.getElementById('shot').onclick=()=>{const cam=topActive?orthoCam:camera;renderer.render(scene,cam);
+  const a=document.createElement('a');a.download='kitchen_'+currentMode+'_'+Date.now()+'.png';a.href=renderer.domElement.toDataURL('image/png');a.click();};
+
+// live camera read-out (HUD) + copy
+const hudEl=document.getElementById('hudtxt'); let lastCamStr='';
+function updateHUD(){
+  const p=camera.position, f=v=>v.toFixed(2);
+  if(topActive){
+    hudEl.textContent='מבט־על אורתוגרפי · קנה מידה אמיתי\ntgt:['+f(target.x)+', '+f(target.y)+', '+f(target.z)+']';
+    lastCamStr='{top:true,tgt:['+f(target.x)+','+f(target.y)+','+f(target.z)+']}';
+  }else{
+    lastCamStr='{eye:['+f(p.x)+','+f(p.y)+','+f(p.z)+'],tgt:['+f(target.x)+','+f(target.y)+','+f(target.z)+']}';
+    hudEl.textContent=currentMode+'  ·  dist='+radius.toFixed(2)+' מ׳\n'+lastCamStr;
+  }
+}
+document.getElementById('copycam').onclick=()=>{
+  const b=document.getElementById('copycam'), t=b.textContent;
+  const done=()=>{b.textContent='✓ הועתק';setTimeout(()=>b.textContent=t,1200);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(lastCamStr).then(done).catch(done);}
+  else{const ta=document.createElement('textarea');ta.value=lastCamStr;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}ta.remove();done();}
+};
+
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);fitOrtho();});
+function fitOrtho(){
+  const aspect=innerWidth/innerHeight, minEx=(RW+0.9)/2, minEz=(RD+0.9)/2;
+  let ez=minEz, ex=ez*aspect; if(ex<minEx){ex=minEx;ez=ex/aspect;}
+  orthoCam.left=-ex;orthoCam.right=ex;orthoCam.top=ez;orthoCam.bottom=-ez;
+  orthoCam.position.set(target.x,10,target.z);orthoCam.up.set(0,0,-1);orthoCam.lookAt(target.x,0,target.z);
+  orthoCam.updateProjectionMatrix();
+}
+
+// ===== INIT =====
+const Q=new URLSearchParams(location.search);
+const initMode=Q.get('mode')==='detail'?'detail':'clean';
+const initView=currentViews[Q.get('view')]?Q.get('view'):'מבט כללי';
+document.querySelectorAll('button.o').forEach(x=>x.classList.toggle('on',x.dataset.mode===initMode));
+document.querySelectorAll('button.v').forEach(x=>x.classList.toggle('on',x.dataset.k===initView));
+build(initMode); currentView=initView; goView(currentViews[initView]); updateDims();
+function lerp(a,b,t){return a+(b-a)*t;}
+function tick(){
+  requestAnimationFrame(tick);
+  topActive=gTop;
+  if(!topActive&&autoSpin)gTheta+=0.0022;
+  radius=lerp(radius,gRadius,0.12);
+  target.lerp(goalTarget,0.12);
+  if(topActive){fitOrtho();renderer.render(scene,orthoCam);}
+  else{theta=lerp(theta,gTheta,0.12);phi=lerp(phi,gPhi,0.12);applyCam();renderer.render(scene,camera);}
+  updateHUD();
+}
+document.getElementById('loading').style.display='none';
+tick();
+})();
+</script>
+</body>
+</html>
