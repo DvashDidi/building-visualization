@@ -80,13 +80,14 @@ const TH=THREE, V3=(x,y,z)=>new TH.Vector3(x,y,z);
 
 // ===== ROOM (kitchen) =====
 // X = width, Z = depth (z=RD is the far cooking wall / Wall B, z=0 is near), Y = up. All metres.
-const RW=4.63, RD=3.60, RH=2.67;
-const COUNTER=0.90, C_T=0.04, BASE_D=0.60, TOE=0.10;    // counter height, top thickness, base depth, toe kick
-const UP_Y0=1.45, UP_H=1.10, UP_D=0.35;                 // upper cabinets: bottom, height, depth
-// Wall C (left wall, x=0) run along Z, occupying its exact 3.02 length in the far corner
-const C_Z0=RD-3.02, C_Z1=RD;                            // 0.58 .. 3.60
-// Island: long axis along X, 2.64 x 1.10, sink facing Wall B, stools on the near (front) side
-const IS_W=2.64, IS_D=1.10, IS_X0=1.34, IS_Z1=2.00, IS_Z0=IS_Z1-IS_D; // back at 2.00, front at 0.90
+const RW=4.63, RD=3.02, RH=2.67;
+const COUNTER=0.92, C_T=0.03, BASE_D=0.60, TOE=0.10;    // counter height, top thickness, base depth, toe kick
+const UP_Y0=1.52, UP_H=1.08, UP_D=0.35;                 // upper cabinets: bottom, height, depth
+const OPENM=0.90;                                       // floor extends past the two open sides (+x, near/-z)
+// Wall C (x=0) runs along Z the full room depth (3.02)
+const C_Z0=0, C_Z1=RD;
+// Island: long axis along X, 2.64 x 1.10. Working side (sink/מדיח) faces the aisle (+z); chairs on the front (-z)
+const IS_W=2.64, IS_D=1.10, IS_X0=1.34, IS_Z1=1.50, IS_Z0=IS_Z1-IS_D; // back 1.50 / front 0.40 (≈0.92 aisle to Wall B)
 const IS_X1=IS_X0+IS_W;
 let DETAIL=false;   // clean(false) / detailed(true)
 
@@ -143,8 +144,6 @@ const M={
   ceil:new TH.MeshStandardMaterial({color:'#f6f3ee',roughness:1,side:TH.FrontSide}),
   cab:new TH.MeshStandardMaterial({color:'#ece7df',roughness:0.5,metalness:0.03}),     // cabinet body / clean blocks
   front:new TH.MeshStandardMaterial({color:'#e7e0d5',roughness:0.55,metalness:0.03}),  // door fronts
-  frontDairy:new TH.MeshStandardMaterial({color:'#dfe6ea',roughness:0.55}),            // subtle dairy tint (חלבי)
-  frontMeat:new TH.MeshStandardMaterial({color:'#ead9d3',roughness:0.55}),             // subtle meat tint (בשרי)
   toe:new TH.MeshStandardMaterial({color:'#2b2723',roughness:0.8}),
   counter:new TH.MeshStandardMaterial({color:'#ece9e3',roughness:0.3,metalness:0.05}), // quartz counter
   splash:new TH.MeshStandardMaterial({color:'#e3ded4',roughness:0.85}),
@@ -172,15 +171,17 @@ let world=new TH.Group(); scene.add(world);
 let nameGroup=null;          // schematic name tags (clean mode only)
 
 function buildShell(W_){
-  let f=plane(RW,RD,M.floor); f.rotation.x=-Math.PI/2; f.position.set(RW/2,0,RD/2); W_.add(f);
+  // floor extends OPENM past the two open sides (+x and near/-z) for an open-plan feel
+  const fx1=RW+OPENM, fz0=-OPENM;
+  let f=plane(fx1,RD-fz0,M.floor); f.rotation.x=-Math.PI/2; f.position.set(fx1/2,0,(fz0+RD)/2); W_.add(f);
   let c=plane(RW,RD,M.ceil); c.rotation.x=Math.PI/2; c.position.set(RW/2,RH,RD/2); W_.add(c);
   const wp=(w,h,cx,cy,cz,rotY)=>{const p=plane(w,h,M.wall);p.position.set(cx,cy,cz);p.rotation.y=rotY;W_.add(p);};
+  // Only two physical walls: Wall B (cooking) + Wall C (fridge). Open on the near ("bottom") and right sides.
   wp(RW,RH,RW/2,RH/2,RD,Math.PI);          // FAR wall (Wall B, cooking)
   wp(RD,RH,0,RH/2,RD/2,Math.PI/2);         // LEFT wall (Wall C)
-  wp(RD,RH,RW,RH/2,RD/2,-Math.PI/2);       // RIGHT wall
-  wp(RW,RH,RW/2,RH/2,0,0);                 // NEAR wall (behind camera on overview)
   const sk=(w,cx,cz,rotY)=>{const b=box(w,0.09,0.02,M.frame,cx,0.045,cz,W_);b.rotation.y=rotY;};
-  sk(RW,RW/2,0.01,0); sk(RD,0.01,RD/2,Math.PI/2); sk(RD,RW-0.01,RD/2,Math.PI/2);
+  sk(RD,0.01,RD/2,Math.PI/2);              // skirting along Wall C
+  sk(RW,RW/2,RD-0.01,0);                   // skirting along Wall B
 }
 
 // dimension label (also reused for schematic name tags)
@@ -232,61 +233,65 @@ function upper(x,z,w,d,facing,h,y0,glass,W_){
   }
 }
 
-// ---- Wall B: cooking wall (far, z=RD). Fronts face -z ----
+// ---- Wall B: cooking wall (far, z=RD). Fronts face -z. From x=0 (Wall C corner) outward ----
 function buildWallB(W_){
   const zf=RD, zc=RD-BASE_D/2;
-  // continuous base run + counter across the whole 4.63 m
-  const segs=[0.93,0.93,0.92,0.40,0.77,0.68];  // 4.63
-  let x=0; for(const w of segs){ baseBox(x+w/2,zc,w,BASE_D,'z-', DETAIL?(x<2.3?M.frontMeat:M.frontDairy):M.cab, W_); x+=w; }
+  // base run: corner 67 | dairy 77 | bottle pull-out 40 | cooktop 92 | meat 93 | towels 93  (≈4.63)
+  const segs=[0.67,0.77,0.40,0.92,0.93,0.93]; let x=0, ckX=RW/2;
+  segs.forEach((w,i)=>{ baseBox(x+w/2,zc,w,BASE_D,'z-', DETAIL?M.front:M.cab, W_); if(i===3)ckX=x+w/2; x+=w; });
   counterTop(0,RW,RD-BASE_D,RD,W_);
   box(RW,0.10,0.02,M.splash,RW/2,COUNTER+0.05,RD-0.011,W_);   // backsplash lip
-  // cooktop (0.94) inset in the counter, centred on the wall (window sits directly above it)
-  const ckX=RW/2, ckW=0.94;
+  // cooktop (0.90) inset in the counter, centred on its 0.92 segment (window sits directly above)
+  const ckW=0.90;
   box(ckW,0.02,0.52,M.cooktop,ckX,COUNTER+0.011,RD-0.34,W_);
   if(DETAIL){ for(const dx of [-0.24,0.24]) for(const dz of [-0.12,0.12]){
     cyl(0.075,0.075,0.012,M.metalDark,ckX+dx,COUNTER+0.024,RD-0.34+dz,W_,20);
     cyl(0.03,0.03,0.02,M.brass,ckX+dx,COUNTER+0.035,RD-0.34+dz,W_,12); } }
-  // central window directly above the cooktop, with uppers on either side
-  box(1.30,1.00,0.03,M.glass,ckX,1.95,RD-0.02,W_);
-  if(DETAIL){ box(1.34,0.04,0.05,M.frame,ckX,1.45,RD-0.02,W_); box(1.34,0.04,0.05,M.frame,ckX,2.45,RD-0.02,W_);
-    box(0.04,1.02,0.05,M.frame,ckX,1.95,RD-0.02,W_); box(1.30,0.04,0.05,M.frame,ckX,1.95,RD-0.02,W_); }
-  upper(0.83,zf-UP_D/2,1.66,UP_D,'z-',UP_H,UP_Y0,false,W_);           // left uppers (over meat)
-  upper(3.80,zf-UP_D/2,1.66,UP_D,'z-',UP_H,UP_Y0,true,W_);            // right uppers (glass, dairy)
+  // window centred directly above the cooktop
+  box(1.35,1.30,0.03,M.glass,ckX,1.90,RD-0.02,W_);
+  if(DETAIL){ box(1.39,0.05,0.06,M.frame,ckX,1.25,RD-0.02,W_); box(1.39,0.05,0.06,M.frame,ckX,2.55,RD-0.02,W_);
+    box(0.05,1.32,0.06,M.frame,ckX,1.90,RD-0.02,W_); box(1.35,0.05,0.06,M.frame,ckX,1.90,RD-0.02,W_); }
+  // uppers: corner (0..0.67) + dairy glass (0.67..1.84) | window gap | meat glass (2.76..4.62)
+  const zu=zf-UP_D/2;
+  upper(0.335,zu,0.67,UP_D,'z-',UP_H,UP_Y0,false,W_);
+  upper(1.255,zu,1.17,UP_D,'z-',UP_H,UP_Y0,true,W_);
+  upper(3.69,zu,1.86,UP_D,'z-',UP_H,UP_Y0,true,W_);
   if(!DETAIL){
     nameTag('כיריים',ckX,COUNTER+0.30,RD-0.5);
-    nameTag('חלון',ckX,2.15,RD-0.5);
-    nameTag('בשרי',0.9,COUNTER+0.55,RD-0.5);
-    nameTag('חלבי',3.85,COUNTER+0.55,RD-0.5);
+    nameTag('חלון',ckX,2.00,RD-0.5);
   }
 }
 
-// ---- Wall C: tall units + fridge (left wall x=0). Fronts face +x ----
+// ---- Wall C: fridge wall (x=0). Fronts face +x. From near/open end (z=0) toward Wall B (z=RD) ----
 function buildWallC(W_){
-  const xc=BASE_D/2, tallH=RH-0.06;
-  function pantry(z0,w){ const zc=z0+w/2;                 // full-height closet (מזווה)
-    box(BASE_D-0.02,tallH,w,M.cab,xc,tallH/2,zc,W_);
-    if(DETAIL){ box(0.02,tallH-0.06,w-0.05,M.front,BASE_D-0.02,tallH/2,zc,W_);
-      box(0.02,0.4,w*0.4,M.brass,BASE_D-0.01,1.4,zc,W_); }
-    return zc; }
-  // מזווה on the near side of the fridge
-  const p1Z0=C_Z0+0.03, p1W=0.60, p1zc=pantry(p1Z0,p1W);
-  // fridge (steel) in the middle
-  const frZ0=p1Z0+p1W, frW=0.95, frZc=frZ0+frW/2, frH=2.02;
+  const xc=BASE_D/2, tallH=RH-0.07;
+  // מזווה: full-height pantry at the near/open end (z 0..0.60)
+  const pzc=0.30, pW=0.60;
+  box(BASE_D-0.02,tallH,pW-0.02,M.cab,xc,tallH/2,pzc,W_);
+  if(DETAIL){ box(0.02,tallH-0.06,pW-0.07,M.front,BASE_D-0.02,tallH/2,pzc,W_);
+    box(0.02,0.5,0.03,M.brass,BASE_D-0.01,1.4,pzc,W_); }
+  // fridge (z 0.60..1.55, width 0.95)
+  const frZ0=0.60, frW=0.95, frZc=frZ0+frW/2, frH=2.00;
   box(BASE_D-0.02,frH,frW,M.steel,xc,frH/2,frZc,W_);
   if(DETAIL){ box(0.02,frH-0.10,frW-0.06,M.steel,BASE_D-0.02,frH/2,frZc,W_);
-    box(0.02,0.4,0.03,M.metalDark,BASE_D-0.01,1.3,frZc-frW/2+0.10,W_);
-    box(0.02,0.4,0.03,M.metalDark,BASE_D-0.01,1.3,frZc+frW/2-0.10,W_); }
-  // second מזווה on the other side of the fridge
-  const p2Z0=frZ0+frW, p2W=0.60, p2zc=pantry(p2Z0,p2W);
-  // base cabinets + uppers for the remaining run up to the corner (near Wall B)
-  const bZ0=p2Z0+p2W, bZ1=C_Z1;
-  let z=bZ0; while(z+0.5<=bZ1){ const w=Math.min(0.55,bZ1-z); baseBox(xc,z+w/2,w,BASE_D,'x+',M.cab,W_); z+=w; }
-  if(bZ1>bZ0+0.05){ counterTop(0,BASE_D,bZ0,bZ1,W_); upper(UP_D/2,(bZ0+bZ1)/2,bZ1-bZ0,UP_D,'x+',UP_H,UP_Y0,false,W_); }
+    box(0.02,0.55,0.03,M.metalDark,BASE_D-0.01,1.30,frZc-0.05,W_);
+    box(0.02,0.55,0.03,M.metalDark,BASE_D-0.01,1.30,frZc+0.05,W_); }
+  // cabinet over the fridge (פלטה+מיחם / מיקרוגל)
+  box(BASE_D-0.04,RH-0.07-frH,frW-0.02,M.cab,(BASE_D-0.04)/2,(frH+RH-0.07)/2,frZc,W_);
+  if(DETAIL) box(0.02,0.32,0.36,M.cooktop,BASE_D-0.03,frH+0.26,frZc,W_);   // microwave front
+  // חד"פ base drawers (z 1.55..2.37) + corner base (z 2.42..3.02), shared counter
+  const dwZc=(1.55+2.37)/2, cnZc=(2.42+RD)/2;
+  baseBox(xc,dwZc,BASE_D,0.82,'x+',M.cab,W_);
+  baseBox(xc,cnZc,BASE_D,RD-2.42,'x+',M.cab,W_);
+  counterTop(0,BASE_D,1.55,RD,W_);
+  // uppers over that counter: glass (z 1.55..2.72) + corner (z 2.72..3.02)
+  upper(UP_D/2,(1.55+2.72)/2,UP_D,2.72-1.55,'x+',UP_H,UP_Y0,true,W_);
+  upper(UP_D/2,(2.72+RD)/2,UP_D,RD-2.72,'x+',UP_H,UP_Y0,false,W_);
   if(!DETAIL){
-    nameTag('מזווה',xc+0.35,RH*0.55,p1zc);
-    nameTag('מקרר',xc+0.35,frH*0.6,frZc);
-    nameTag('מזווה',xc+0.35,RH*0.55,p2zc);
-    if(bZ1>bZ0+0.05) nameTag('חד"פ',xc+0.35,COUNTER+0.25,(bZ0+bZ1)/2);
+    nameTag('מזווה',xc+0.35,RH*0.5,pzc);
+    nameTag('מקרר',xc+0.35,frH*0.55,frZc);
+    nameTag('מיקרוגל',xc+0.30,frH+0.28,frZc);
+    nameTag('חד"פ',xc+0.35,COUNTER+0.20,dwZc);
   }
 }
 
@@ -300,29 +305,27 @@ function stool(x,z,W_){
 }
 function buildIsland(W_){
   const cx=(IS_X0+IS_X1)/2, cz=(IS_Z0+IS_Z1)/2;
-  // body split into cabinet segments 40/70/50/50/50 along X (front faces -z)
+  // full 2.64 × 1.10 footprint; drawers/appliances face the aisle (+z), chairs on the front (-z)
   const segs=[0.40,0.70,0.50,0.50,0.54]; let x=IS_X0;
-  for(const w of segs){ baseBox(x+w/2,cz,w,IS_D,'z-',M.cab,W_); x+=w; }
+  for(const w of segs){ baseBox(x+w/2,cz,w,IS_D,'z+',M.cab,W_); x+=w; }
   counterTop(IS_X0,IS_X1,IS_Z0,IS_Z1,W_);
-  // countertop overhang on the stool (front) side for knee room
-  box(IS_W,C_T,0.28,M.counter,cx,COUNTER-C_T/2,IS_Z0-0.14,W_);
-  // sink (double bowl) near the back edge, centred; dishwasher on the LEFT, wine fridge behind the dishwasher
-  const skX=cx, skZ=IS_Z1-0.34, dwX=cx-0.72;
+  // sink (0.90) centred, near the back/aisle edge; מדיח at the far-x end (aisle side), wine fridge below it (front)
+  const skX=cx, skZ=IS_Z1-0.30, appX=IS_X1-0.37;
   if(DETAIL){
-    box(0.66,0.02,0.42,M.steel,skX,COUNTER+0.006,skZ,W_);
-    for(const dx of [-0.16,0.16]) box(0.26,0.14,0.34,M.metalDark,skX+dx,COUNTER-0.07,skZ,W_);
-    cyl(0.015,0.015,0.26,M.steel,skX,COUNTER+0.13,skZ-0.16,W_,12);   // tap on the standing side (front rim)
-    box(0.60,0.72,0.03,M.metalDark,dwX,0.46,IS_Z0+0.02,W_);          // dishwasher front (opens toward the clear left side)
-    box(0.55,0.68,0.50,M.wine,dwX,0.44,IS_Z1-0.28,W_);              // wine fridge directly BEHIND the dishwasher
+    box(0.90,0.02,0.50,M.steel,skX,COUNTER+0.006,skZ,W_);
+    for(const dx of [-0.21,0.21]) box(0.34,0.14,0.38,M.metalDark,skX+dx,COUNTER-0.07,skZ,W_);
+    cyl(0.015,0.015,0.26,M.steel,skX,COUNTER+0.13,skZ+0.18,W_,12);   // tap on the aisle rim
+    box(0.60,0.72,0.03,M.metalDark,appX,0.46,IS_Z1-0.02,W_);         // dishwasher front (aisle side, +z)
+    box(0.55,0.62,0.48,M.wine,appX,0.41,IS_Z0+0.27,W_);             // wine fridge at the front-x corner
   }else{
-    box(0.66,0.02,0.42,M.steel,skX,COUNTER+0.006,skZ,W_);
+    box(0.90,0.02,0.50,M.steel,skX,COUNTER+0.006,skZ,W_);
     nameTag('כיור',skX,COUNTER+0.25,skZ);
-    nameTag('מדיח',dwX,COUNTER+0.25,IS_Z0+0.15);
-    nameTag('מקרר יינות',dwX,0.62,IS_Z1-0.28);
+    nameTag('מדיח',appX,COUNTER+0.20,IS_Z1-0.15);
+    nameTag('מקרר יינות',appX,0.60,IS_Z0+0.27);
   }
-  // 3 bar stools clustered on the RIGHT, leaving the left front clear to open the dishwasher / wine fridge
+  // 3 bar stools on the front (-z), toward the low-x (Wall C) side
   const sZ=IS_Z0-0.42;
-  for(const sx of [cx+0.20, cx+0.68, cx+1.16]) stool(sx,sZ,W_);
+  for(const sx of [IS_X0+0.45, IS_X0+0.95, IS_X0+1.45]) stool(sx,sZ,W_);
 }
 
 // ===== DIMENSIONS =====
@@ -350,12 +353,12 @@ function buildDims(dg){
   dg.userData.groups={room:gRoom,wallB:gB,wallC:gC,island:gI};
   // room
   dimBar('x',0,RW,-0.25,0.03,'4.63',gRoom);
-  dimBar('z',0,RD,-0.25,0.03,'3.60*',gRoom);
-  // Wall B (cooking wall)
+  dimBar('z',0,RD,-0.25,0.03,'3.02',gRoom);
+  // Wall B (cooking wall) — cooktop segment 1.84..2.76
   dimBar('x',0,RW,RD-BASE_D-0.10,COUNTER,'4.63',gB);
-  dimBar('x',RW/2-0.47,RW/2+0.47,RD-BASE_D-0.22,COUNTER,'0.94',gB);   // cooktop width (centred)
+  dimBar('x',1.84,2.76,RD-BASE_D-0.22,COUNTER,'0.92',gB);   // cooktop segment
   dimV(RW+0.02,RD-0.02,0,RH,'2.67',gB);
-  dimV(RW+0.02,RD-0.02,0,COUNTER,'0.90',gB);
+  dimV(RW+0.02,RD-0.02,0,COUNTER,'0.92',gB);
   dimV(RW+0.02,RD-0.02,UP_Y0,UP_Y0+UP_H,'1.08',gB);
   // Wall C
   dimBar('z',C_Z0,C_Z1,BASE_D+0.10,COUNTER,'3.02',gC);
@@ -363,7 +366,7 @@ function buildDims(dg){
   // Island
   dimBar('x',IS_X0,IS_X1,IS_Z0-0.20,COUNTER,'2.64',gI);
   dimBar('z',IS_Z0,IS_Z1,IS_X1+0.15,COUNTER,'1.10',gI);
-  dimV(IS_X1+0.02,IS_Z1-0.02,0,COUNTER,'0.90',gI);
+  dimV(IS_X1+0.02,IS_Z1-0.02,0,COUNTER,'0.92',gI);
 }
 function clearWorld(){
   world.traverse(o=>{ if(o.geometry)o.geometry.dispose(); });
@@ -391,13 +394,11 @@ function updateDims(){
 // ===== LEGEND =====
 function updateLegend(){
   const L=document.getElementById('legend');
-  L.innerHTML='<b>מטבח כשר</b> · '+(DETAIL?'תצוגה מפורטת':'תצוגה נקייה (סכמטית)')+'<br>'+
-    '<span style="color:#e0b0a6">&#9632;</span> אזור בשרי &nbsp; '+
-    '<span style="color:#a9c6d8">&#9632;</span> אזור חלבי<br>'+
-    '<span style="color:#d8a94a">&#9632;</span> קיר כיריים 4.63מ׳ · כיריים &nbsp; '+
-    '<span style="color:#c2c6ca">&#9632;</span> קיר מקרר 3.02מ׳<br>'+
-    '<span style="color:#9ac0a0">&#9632;</span> אי 2.64×1.10מ׳ · כיור + מדיח + 3 כיסאות בר';
-  document.getElementById('sub').textContent='קנה מידה אמיתי · '+(DETAIL?'מפורט':'נקי')+' · *עומק החדר משוער';
+  L.innerHTML='<b>מטבח</b> · '+(DETAIL?'תצוגה מפורטת':'תצוגה נקייה (סכמטית)')+'<br>'+
+    '<span style="color:#d8a94a">&#9632;</span> קיר כיריים 4.63מ׳ · כיריים 0.92 &nbsp; '+
+    '<span style="color:#c2c6ca">&#9632;</span> קיר מקרר 3.02מ׳ · מקרר + מזווה<br>'+
+    '<span style="color:#9ac0a0">&#9632;</span> אי 2.64×1.10מ׳ · כיור + מדיח + מקרר יינות + 3 כיסאות';
+  document.getElementById('sub').textContent='קנה מידה אמיתי · '+(DETAIL?'מפורט':'נקי')+' · 4.63×3.02מ׳';
 }
 
 // ===== CAMERA (spherical orbit, eased) =====
@@ -427,11 +428,11 @@ function goView(v){
 }
 function viewsFor(){
   return {
-    "מבט כללי":{eye:[5.6,3.9,-2.6],tgt:[2.30,1.05,2.20]},
+    "מבט כללי":{eye:[6.2,4.2,-3.0],tgt:[2.30,1.00,1.30]},
     "מבט־על":{top:true,tgt:[RW/2,0.3,RD/2]},
-    "קיר כיריים":{eye:[2.30,1.55,-0.60],tgt:[2.30,1.30,RD]},
-    "קיר מקרר":{eye:[3.40,1.55,1.80],tgt:[0.0,1.30,1.80]},
-    "אי":{eye:[2.62,2.10,-1.70],tgt:[2.62,0.90,1.40]},
+    "קיר כיריים":{eye:[2.30,1.55,-0.80],tgt:[2.30,1.30,RD]},
+    "קיר מקרר":{eye:[3.60,1.55,1.51],tgt:[0.0,1.30,1.51]},
+    "אי":{eye:[2.66,2.20,-2.20],tgt:[2.66,0.85,0.95]},
   };
 }
 let currentViews=viewsFor();
